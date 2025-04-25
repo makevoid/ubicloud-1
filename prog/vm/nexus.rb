@@ -15,7 +15,8 @@ class Prog::Vm::Nexus < Prog::Base
     unix_user: "ubi", location_id: Location::HETZNER_FSN1_ID, boot_image: Config.default_boot_image_name,
     private_subnet_id: nil, nic_id: nil, storage_volumes: nil, boot_disk_index: 0,
     enable_ip4: false, pool_id: nil, arch: "x64", swap_size_bytes: nil,
-    distinct_storage_devices: false, force_host_id: nil, exclude_host_ids: [], gpu_count: 0)
+    distinct_storage_devices: false, force_host_id: nil, exclude_host_ids: [], gpu_count: 0,
+    hugepages: !Config.development?, ch_version: nil, firmware_version: nil)
 
     unless (project = Project[project_id])
       fail "No existing project"
@@ -126,7 +127,10 @@ class Prog::Vm::Nexus < Prog::Base
           "distinct_storage_devices" => distinct_storage_devices,
           "force_host_id" => force_host_id,
           "exclude_host_ids" => exclude_host_ids,
-          "gpu_count" => gpu_count
+          "gpu_count" => gpu_count,
+          "hugepages" => hugepages,
+          "ch_version" => ch_version,
+          "firmware_version" => firmware_version
         }]
       ) { it.id = vm.id }
     end
@@ -289,7 +293,7 @@ class Prog::Vm::Nexus < Prog::Base
 
       write_params_json
 
-      host.sshable.cmd("common/bin/daemonizer 'sudo host/bin/setup-vm prep #{q_vm}' prep_#{q_vm}", stdin: secrets_json)
+      host.sshable.cmd("common/bin/daemonizer '#{setup_vm_str("prep")}' prep_#{q_vm}", stdin: secrets_json)
     end
 
     nap 1
@@ -298,6 +302,18 @@ class Prog::Vm::Nexus < Prog::Base
   label def clean_prep
     host.sshable.cmd("common/bin/daemonizer --clean prep_#{q_vm}")
     hop_wait_sshable
+  end
+
+  def self.setup_vm_options_str(frame)
+    options = []
+    options << "hugepages=off" if frame["hugepages"] == false
+    options << "ch_version=#{frame["ch_version"]}" if frame["ch_version"]
+    options << "firmware_version=#{frame["firmware_version"]}" if frame["firmware_version"]
+    options.join(",")
+  end
+
+  def setup_vm_str(action)
+    "sudo host/bin/setup-vm #{action} #{q_vm} #{self.class.setup_vm_options_str(frame)}"
   end
 
   def write_params_json
@@ -427,13 +443,13 @@ class Prog::Vm::Nexus < Prog::Base
   label def update_spdk_dependency
     decr_update_spdk_dependency
     write_params_json
-    host.sshable.cmd("sudo host/bin/setup-vm reinstall-systemd-units #{q_vm}")
+    host.sshable.cmd(setup_vm_str("reinstall-systemd-units"))
     hop_wait
   end
 
   label def restart
     decr_restart
-    host.sshable.cmd("sudo host/bin/setup-vm restart #{q_vm}")
+    host.sshable.cmd(setup_vm_str("restart"))
     hop_wait
   end
 
@@ -507,7 +523,7 @@ class Prog::Vm::Nexus < Prog::Base
       # If there is a load balancer setup, we want to keep the network setup in
       # tact for a while
       action = vm.load_balancer ? "delete_keep_net" : "delete"
-      host.sshable.cmd("sudo host/bin/setup-vm #{action} #{q_vm}")
+      host.sshable.cmd(setup_vm_str(action))
     end
 
     vm.vm_storage_volumes.each do |vol|
@@ -556,7 +572,7 @@ class Prog::Vm::Nexus < Prog::Base
       lb.remove_vm(vm)
     end
 
-    vm.vm_host.sshable.cmd("sudo host/bin/setup-vm delete_net #{q_vm}")
+    vm.vm_host.sshable.cmd(setup_vm_str("delete_net"))
 
     hop_destroy_slice
   end
@@ -604,7 +620,7 @@ class Prog::Vm::Nexus < Prog::Base
       storage: vm.storage_secrets
     })
 
-    host.sshable.cmd("sudo host/bin/setup-vm recreate-unpersisted #{q_vm}", stdin: secrets_json)
+    host.sshable.cmd(setup_vm_str("recreate-unpersisted"), stdin: secrets_json)
     vm.nics.each(&:incr_repopulate)
 
     vm.update(display_state: "running")
