@@ -317,7 +317,8 @@ class Prog::Vm::Nexus < Prog::Base
   end
 
   def write_params_json
-    host.sshable.cmd("sudo -u #{q_vm} tee #{params_path.shellescape}", stdin: vm.params_json(frame["swap_size_bytes"]))
+    host.sshable.cmd("sudo -u #{q_vm} tee #{params_path.shellescape}",
+      stdin: vm.params_json(frame.slice(*%w[swap_size_bytes])))
   end
 
   label def wait_sshable
