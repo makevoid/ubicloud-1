@@ -304,16 +304,8 @@ class Prog::Vm::Nexus < Prog::Base
     hop_wait_sshable
   end
 
-  def self.setup_vm_options_str(frame)
-    options = []
-    options << "hugepages=off" if frame["hugepages"] == false
-    options << "ch_version=#{frame["ch_version"]}" if frame["ch_version"]
-    options << "firmware_version=#{frame["firmware_version"]}" if frame["firmware_version"]
-    options.join(",")
-  end
-
   def setup_vm_str(action)
-    "sudo host/bin/setup-vm #{action} #{q_vm} #{self.class.setup_vm_options_str(frame)}"
+    "sudo host/bin/setup-vm #{action} #{q_vm}"
   end
 
   def write_params_json

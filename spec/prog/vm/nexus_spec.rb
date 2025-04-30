@@ -278,10 +278,10 @@ RSpec.describe Prog::Vm::Nexus do
       expect { nx.prep }.to hop("clean_prep")
     end
 
-    {
-      "" => {},
-      "hugepages=off,ch_version=45.0,firmware_version=202311" => {"hugepages" => false, "ch_version" => "45.0", "firmware_version" => "202311"}
-    }.each do |setup_vm_opts_str, frame_update|
+    [
+      {"swap_size_bytes" => nil},
+      {"swap_size_bytes" => nil, "hugepages" => false, "ch_version" => "45.0", "firmware_version" => "202311"}
+    ].each do |frame_update|
       it "generates and passes a params json if prep command is not started yet (with frame opts: #{frame_update.inspect})" do
         nx.strand.stack.first.update(frame_update)
         nx.instance_variable_set(:@frame, nil)
@@ -310,7 +310,7 @@ RSpec.describe Prog::Vm::Nexus do
         expect(sshable).to receive(:cmd).with(/sudo -u vm[0-9a-z]+ tee/, stdin: String) do |**kwargs|
           require "json"
           params = JSON(kwargs.fetch(:stdin))
-          expect(params).to include({
+          expect(params).to include(
             "public_ipv6" => "fe80::/64",
             "unix_user" => "test_user",
             "ssh_public_keys" => ["test_ssh_key", "operator_ssh_key"],
@@ -323,10 +323,11 @@ RSpec.describe Prog::Vm::Nexus do
             "pci_devices" => [["01:00.0", 23]],
             "slice_name" => "system.slice",
             "cpu_percent_limit" => 200,
-            "cpu_burst_percent_limit" => 0
-          })
+            "cpu_burst_percent_limit" => 0,
+            **frame_update
+          )
         end
-        expect(sshable).to receive(:cmd).with(/sudo host\/bin\/setup-vm prep #{nx.vm_name} #{setup_vm_opts_str}/, {stdin: /{"storage":{"vm.*_0":{"key":"key","init_vector":"iv","algorithm":"aes-256-gcm","auth_data":"somedata"}}}/})
+        expect(sshable).to receive(:cmd).with(/sudo host\/bin\/setup-vm prep #{nx.vm_name}/, {stdin: /{"storage":{"vm.*_0":{"key":"key","init_vector":"iv","algorithm":"aes-256-gcm","auth_data":"somedata"}}}/})
 
         expect { nx.prep }.to nap(1)
       end
@@ -836,7 +837,7 @@ RSpec.describe Prog::Vm::Nexus do
 
       expect(nx).to receive(:decr_update_spdk_dependency)
       expect(nx).to receive(:write_params_json)
-      expect(sshable).to receive(:cmd).with("sudo host/bin/setup-vm reinstall-systemd-units #{vm.inhost_name} ")
+      expect(sshable).to receive(:cmd).with("sudo host/bin/setup-vm reinstall-systemd-units #{vm.inhost_name}")
       expect { nx.update_spdk_dependency }.to hop("wait")
     end
   end
@@ -846,7 +847,7 @@ RSpec.describe Prog::Vm::Nexus do
       sshable = instance_double(Sshable)
       expect(vm).to receive(:vm_host).and_return(instance_double(VmHost, sshable: sshable))
       expect(nx).to receive(:decr_restart)
-      expect(sshable).to receive(:cmd).with("sudo host/bin/setup-vm restart #{vm.inhost_name} ")
+      expect(sshable).to receive(:cmd).with("sudo host/bin/setup-vm restart #{vm.inhost_name}")
       expect { nx.restart }.to hop("wait")
     end
   end
