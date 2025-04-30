@@ -4,16 +4,21 @@
 require_relative "../loader"
 clover_freeze
 
-resources = {}
+health_monitor_resources = {}
+metrics_target_resources = {}
 mutex = Mutex.new
 
 resource_scanner = Thread.new do
   monitorable_resource_types = [VmHost, PostgresServer, Vm.where(~Sshable.where(id: Sequel[:vm][:id]).exists), MinioServer, GithubRunner, VmHostSlice, LoadBalancerVmPort, KubernetesCluster]
+  metrics_target_resource_types = [PostgresServer]
 
   loop do
     mutex.synchronize do
       Enumerator::Chain.new(*monitorable_resource_types).each do |r|
-        resources[r.id] ||= MonitorableResource.new(r)
+        health_monitor_resources[r.id] ||= MonitorableResource.new(r)
+      end
+      Enumerator::Chain.new(*metrics_target_resource_types).each do |r|
+        metrics_target_resources[r.id] ||= MetricsTargetResource.new(r)
       end
     end
 
@@ -30,7 +35,7 @@ pulse_checker = Thread.new do
     mutex.synchronize do
       # Deduct 3 for the threads that are always running: main, resource_scanner, pulse_checker
       Clog.emit("Active threads count.") { {active_threads_count: Thread.list.count - 3} }
-      resources.each do |r_id, r|
+      health_monitor_resources.each do |r_id, r|
         sleep 1 while Thread.list.count + 2 > Config.max_monitor_threads
 
         r.force_stop_if_stuck
@@ -44,7 +49,7 @@ pulse_checker = Thread.new do
         end
       end
 
-      resources.select { |r_id, r| r.deleted }.each { |r_id, r| resources.delete(r_id) }
+      health_monitor_resources.select { |r_id, r| r.deleted }.each { |r_id, r| health_monitor_resources.delete(r_id) }
     end
     sleep 5
   end
@@ -54,5 +59,33 @@ rescue => ex
   Kernel.exit!
 end
 
+metrics_exporter = Thread.new do
+  loop do
+    mutex.synchronize do
+      metrics_target_resources.each do |r_id, r|
+        sleep 1 while Thread.list.count + 2 > Config.max_monitor_threads
+
+        r.force_stop_if_stuck
+
+        Thread.new do
+          r.lock_no_wait do
+            r.open_resource_session
+            r.export_metrics
+            Clog.emit("Iteration complete") { {iteration_complete: {id: r_id}} }
+          end
+        end
+      end
+
+      metrics_target_resources.select { |r_id, r| r.deleted }.each { |r_id, r| metrics_target_resources.delete(r_id) }
+    end
+    sleep 5
+  end
+rescue => ex
+  Clog.emit("Metrics exporter thread has failed.") { {metrics_exporter_failure: {exception: Util.exception_to_hash(ex)}} }
+  ThreadPrinter.run
+  Kernel.exit!
+end
+
 resource_scanner.join
 pulse_checker.join
+metrics_exporter.join

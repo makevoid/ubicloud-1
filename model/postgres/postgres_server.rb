@@ -15,6 +15,7 @@ class PostgresServer < Sequel::Model
   include ResourceMethods
   include SemaphoreMethods
   include HealthMonitorMethods
+  include MetricsTargetMethods
 
   semaphore :initial_provisioning, :refresh_certificates, :update_superuser_password, :checkup
   semaphore :restart, :configure, :take_over, :configure_prometheus, :destroy, :recycle, :promote
@@ -192,6 +193,16 @@ class PostgresServer < Sequel::Model
     }
   end
 
+  def init_metrics_export_session
+    FileUtils.rm_rf(metrics_export_socket_path)
+    FileUtils.mkdir_p(metrics_export_socket_path)
+
+    ssh_session = vm.sshable.start_fresh_session
+    {
+      ssh_session: ssh_session
+    }
+  end
+
   def check_pulse(session:, previous_pulse:)
     reading = begin
       session[:db_connection] ||= Sequel.connect(adapter: "postgres", host: health_monitor_socket_path, user: "postgres", connect_timeout: 4)
@@ -228,7 +239,12 @@ class PostgresServer < Sequel::Model
   end
 
   def health_monitor_socket_path
-    @health_monitor_socket_path ||= File.join(Dir.pwd, "var", "health_monitor_sockets", "pg_#{vm.ip6}")
+    @health_monitor_socket_path ||= File.join("/tmp", "var", "health_monitor_sockets", "pg_#{vm.ip6}")
+  end
+
+  def metrics_export_socket_path
+    # TODO: Move this to Dir.pwd
+    @health_monitor_socket_path ||= File.join("/tmp", "var", "metrics_export_sockets", "pg_#{vm.ip6}")
   end
 
   def lsn2int(lsn)
