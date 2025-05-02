@@ -301,7 +301,7 @@ RSpec.describe Prog::Vm::Nexus do
         prj.set_ff_vm_public_ssh_keys(["operator_ssh_key"])
         expect(vm).to receive(:project).and_return(prj).at_least(:once)
 
-        sshable = instance_spy(Sshable)
+        sshable = instance_double(Sshable)
         expect(sshable).to receive(:cmd).with("common/bin/daemonizer --check prep_#{nx.vm_name}").and_return("NotStarted")
         vmh = instance_double(VmHost, sshable: sshable,
           total_cpus: 80, total_cores: 80, total_sockets: 10, ndp_needed: false, arch: "arm64")
