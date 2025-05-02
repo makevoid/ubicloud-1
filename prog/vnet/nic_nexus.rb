@@ -19,7 +19,7 @@ class Prog::Vnet::NicNexus < Prog::Base
       label = if subnet.location.provider == "aws"
         "create_aws_nic"
       else
-        "wait_allocation"
+        "wait_setup"
       end
       Strand.create(prog: "Vnet::NicNexus", label:) { it.id = nic.id }
     end
@@ -44,15 +44,7 @@ class Prog::Vnet::NicNexus < Prog::Base
     nap 10
   end
 
-  label def wait_allocation
-    when_vm_allocated_set? do
-      hop_wait_setup
-    end
-    nap 5
-  end
-
   label def wait_setup
-    decr_vm_allocated
     when_start_rekey_set? do
       hop_start_rekey
     end
